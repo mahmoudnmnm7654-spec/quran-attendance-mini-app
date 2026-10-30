@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<meta name="theme-color" content="#002b22">
+<title>الحضور القرآني</title>
+<link rel="stylesheet" href="style.css">
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+</head>
+<body>
+<div class="app-shell">
+  <header class="topbar">
+    <div class="brand-mark">۞</div>
+    <div class="brand-copy"><strong>الحضور القرآني</strong><small>معًا نحو حفظ أعمق وفهم أجمل</small></div>
+    <button class="icon-btn" id="settingsQuick" aria-label="الإعدادات">⚙</button>
+  </header>
+
+  <div class="mode-switch"><button id="teacherMode" class="mode active">واجهة المعلمة</button><button id="studentMode" class="mode">واجهة الطالبة</button></div>
+<main id="homeScreen" class="screen active">
+    <section class="hero ornate">
+      <div class="moon">☾</div>
+      <div class="hero-kicker">أهلًا وسهلًا بكِ</div>
+      <h1>الحضور القرآني</h1>
+      <p>معًا نحو حفظ أعمق وفهم أجمل</p>
+      <div class="hero-rule">✦ ❖ ✦</div>
+      <div class="group-feature">
+        <span class="book-icon">۞</span>
+        <div><small>مجموعتكِ الحالية</small><strong id="homeGroupName">مجموعة الفجر</strong><small id="homeTeacher">معلمة المجموعة</small></div>
+      </div>
+      <div class="quran-illustration">۞<span>الْقُرْآنُ الْكَرِيمُ</span>۞</div>
+    </section>
+    <section class="section-head"><h2>المجموعات القرآنية</h2><button class="text-btn" data-screen="groupsScreen">عرض الكل</button></section>
+    <div id="homeGroups" class="group-list"></div>
+    <section class="quick-grid">
+      <button class="tile" data-screen="manageStudentsScreen"><span class="tile-symbol">♙</span><strong>أسماء الطالبات</strong></button>
+      <button class="tile" data-screen="attendanceScreen"><span class="tile-symbol">✓</span><strong>تسجيل الحضور</strong></button>
+      <button class="tile" data-screen="wheelScreen"><span class="tile-symbol">✧</span><strong>العجلة القرآنية</strong></button>
+      <button class="tile" data-screen="statsScreen"><span class="tile-symbol">▥</span><strong>الإحصائيات</strong></button>
+      <button class="tile" data-screen="messagesScreen"><span class="tile-symbol">✉</span><strong>رسائل الطالبات</strong></button>
+    </section>
+  </main>
+
+  <main id="groupsScreen" class="screen">
+    <div class="page-title"><button class="back-btn" data-screen="homeScreen">‹</button><div><h1>المجموعات القرآنية</h1><p>اختاري المجموعة التي تريدين إدارتها</p></div></div>
+    <div id="groupsList" class="group-list"></div>
+    <button class="primary-btn" id="addGroup">＋ إضافة مجموعة جديدة</button>
+    <div class="hint">يمكنكِ تغيير أسماء المجموعات من الإعدادات في أي وقت.</div>
+  </main>
+
+  <main id="groupScreen" class="screen">
+    <div class="page-title"><button class="back-btn" data-screen="groupsScreen">‹</button><div><h1 id="selectedGroupTitle">مجموعة الفجر</h1><p>لوحة إدارة المجموعة</p></div></div>
+    <div class="group-banner"><div class="banner-emblem">۞</div><div><strong id="selectedGroupName">مجموعة الفجر</strong><small id="selectedGroupCount">12 طالبة</small></div></div>
+    <div class="action-grid">
+      <button class="action-card" data-screen="attendanceScreen"><span class="action-icon red">✕</span><b>الغياب</b></button>
+      <button class="action-card" data-screen="attendanceScreen"><span class="action-icon green">✓</span><b>الحضور</b></button>
+      <button class="action-card" data-screen="attendanceScreen"><span class="action-icon amber">◖</span><b>مستمعة</b></button>
+      <button class="action-card" data-screen="attendanceScreen"><span class="action-icon blue">●</span><b>معتذرة</b></button>
+      <button class="action-card" data-screen="wheelScreen"><span class="action-icon gold">✧</span><b>العجلة القرآنية</b></button>
+      <button class="action-card" data-screen="statsScreen"><span class="action-icon gold">▤</span><b>الإحصائيات</b></button>
+    </div>
+  </main>
+
+  <main id="attendanceScreen" class="screen">
+    <div class="page-title"><button class="back-btn" data-screen="groupScreen">‹</button><div><h1>سجل الحضور</h1><p>حدّدي حالة كل طالبة</p></div></div>
+    <div class="date-chip"><span>▦</span><input id="attendanceDate" type="date"></div>
+    <div class="search-wrap"><span>⌕</span><input id="studentSearch" placeholder="ابحثي عن اسم طالبة..."></div>
+    <div id="studentsList" class="students-list"></div>
+    <button class="primary-btn" id="saveAttendance">حفظ سجل الحضور</button>
+    <div id="saveNotice" class="notice hidden">تم حفظ التعديلات على هذا الجهاز ✓</div>
+  </main>
+
+  <main id="statsScreen" class="screen">
+    <div class="page-title"><button class="back-btn" data-screen="groupScreen">‹</button><div><h1>إحصائيات المجموعة</h1><p>ملخص سريع للحضور</p></div></div>
+    <div class="stats-ring"><div class="ring-inner"><small>إجمالي الطالبات</small><strong id="totalStudents">12</strong></div></div>
+    <div class="stats-grid">
+      <div class="stat-card present"><strong id="presentCount">6</strong><span>حاضرة</span></div>
+      <div class="stat-card absent"><strong id="absentCount">1</strong><span>غائبة</span></div>
+      <div class="stat-card listener"><strong id="listenerCount">3</strong><span>مستمعة</span></div>
+      <div class="stat-card excused"><strong id="excusedCount">2</strong><span>معتذرة</span></div>
+    </div>
+    <p class="verse">كل حرفٍ تقرئينه، نورٌ في قلبكِ</p>
+  </main>
+
+  <main id="wheelScreen" class="screen">
+    <div class="page-title"><button class="back-btn" data-screen="groupScreen">‹</button><div><h1>العجلة القرآنية</h1><p>اختاري قسمًا عشوائيًا</p></div></div>
+    <div class="wheel-wrap"><div class="wheel" id="wheel">
+      <div class="wheel-center">۞<small>القرآن الكريم</small></div>
+      <span class="wheel-label l1">حفظ القرآن</span><span class="wheel-label l2">مراجعة وتسميع</span>
+      <span class="wheel-label l3">تحديات قرآنية</span><span class="wheel-label l4">معاني الآيات</span>
+      <span class="wheel-label l5">أحكام التجويد</span><span class="wheel-label l6">معلومات قرآنية</span>
+    </div><div class="wheel-pointer">◆</div></div>
+    <button class="primary-btn" id="spinWheel">دَوّري العجلة ✧</button>
+    <div id="wheelResult" class="wheel-result">استعدّي لتحدٍ قرآني جميل</div>
+  </main>
+
+  <main id="messagesScreen" class="screen">
+    <div class="page-title"><button class="back-btn" data-screen="homeScreen">‹</button><div><h1>رسائل الطالبات</h1><p>اكتبي رسالة تشجيعية</p></div></div>
+    <div class="panel"><label for="messageStudent">اسم الطالبة</label><input id="messageStudent" placeholder="اكتبي اسم الطالبة"><label for="messageText">الرسالة</label><textarea id="messageText" rows="4" placeholder="يا صاحبة القرآن، واصلي طريق النور..."></textarea><button class="primary-btn" id="makeMessage">تجهيز الرسالة</button></div>
+    <div id="messagePreview" class="message-preview hidden"></div>
+  </main>
+
+  <main id="settingsScreen" class="screen">
+    <div class="page-title"><button class="back-btn" data-screen="homeScreen">‹</button><div><h1>الإعدادات</h1><p>خصّصي البوت كما تريدين</p></div></div>
+    <div class="panel">
+      <label for="teacherName">اسم المعلمة</label><input id="teacherName" placeholder="اسم المعلمة">
+      <label for="groupNameEdit">أسماء المجموعات</label>
+      <div id="groupEditors" class="group-editors"></div>
+      <button class="outline-btn" id="addGroupSetting">＋ إضافة مجموعة</button>
+      <label for="newGroupName">اسم مجموعة جديدة</label><input id="newGroupName" placeholder="مثال: مجموعة النور">
+      <button class="primary-btn" id="saveSettings">حفظ الإعدادات</button>
+      <p class="hint">هذه النسخة تحفظ البيانات على نفس المتصفح. ربط الحفظ بين الأجهزة وإرسال رسائل تيليجرام يحتاجان إعداد البوت والخادم.</p>
+    </div>
+  </main>
+
+  <main id="manageStudentsScreen" class="screen">
+    <div class="page-title"><button class="back-btn" data-screen="homeScreen">‹</button><div><h1>أسماء الطالبات</h1><p>إضافة الأسماء وتعديلها لكل مجموعة</p></div></div>
+    <div class="panel"><label for="manageGroupSelect">المجموعة</label><select id="manageGroupSelect"></select><div id="manageStudentsList" class="manage-list"></div><label for="newStudentName">اسم طالبة جديدة</label><input id="newStudentName" placeholder="اكتبي الاسم الكامل"><button class="primary-btn" id="addStudent">＋ إضافة الطالبة</button></div>
+    <p class="hint">الأسماء التي تضيفينها ستظهر في سجل المعلمة وفي قائمة اختيار الطالبة.</p>
+  </main>
+  <main id="studentScreen" class="screen">
+    <section class="student-welcome"><div class="moon">☾</div><h1>أهلًا بصاحبة القرآن</h1><p>اختاري مجموعتكِ واسمكِ، ثم سجّلي حالتكِ لهذا اليوم.</p></section>
+    <div class="panel student-panel"><label for="studentGroupSelect">المجموعة القرآنية</label><select id="studentGroupSelect"></select><label for="studentNameSelect">اسمكِ</label><select id="studentNameSelect"></select><label>حالتكِ اليوم</label><div class="student-status-grid"><button class="status-choice present-choice" data-status="حاضرة">✓<span>حاضرة</span></button><button class="status-choice absent-choice" data-status="غائبة">✕<span>غائبة</span></button><button class="status-choice listener-choice" data-status="مستمعة">◖<span>مستمعة</span></button><button class="status-choice excused-choice" data-status="معتذرة">●<span>معتذرة</span></button></div><div id="studentConfirm" class="student-confirm hidden"></div><button class="primary-btn" id="submitStudentStatus">تأكيد الحالة</button><p class="hint">معاينة فقط: في هذه النسخة تُحفظ الحالة على المتصفح نفسه.</p></div>
+  </main>
+</div>
+
+<nav class="bottom-nav">
+  <button class="nav-item active" data-screen="homeScreen"><span>⌂</span><small>الرئيسية</small></button>
+  <button class="nav-item" data-screen="attendanceScreen"><span>☷</span><small>السجل</small></button>
+  <button class="nav-item" data-screen="messagesScreen"><span>✉</span><small>الرسائل</small></button>
+  <button class="nav-item" data-screen="settingsScreen"><span>⚙</span><small>الإعدادات</small></button>
+</nav>
+<script src="app.js"></script>
+</body>
+</html>
