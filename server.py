@@ -3,9 +3,20 @@ from flask import Flask, request, jsonify, send_from_directory
 import sqlite3
 import os
 import json
+import hmac
+import hashlib
+import urllib.parse
+import time
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.path.join(BASE_DIR, "attendance.db")
+
+BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
+TEACHER_IDS = {
+    x.strip()
+    for x in os.environ.get("TEACHER_IDS", "").split(",")
+    if x.strip()
+}
 
 app = Flask(__name__)
 
@@ -20,8 +31,64 @@ def init_db():
         """)
 
 
-# تجهيز قاعدة البيانات عند تشغيل الخادم
 init_db()
+
+
+def verify_telegram_user():
+    if not BOT_TOKEN:
+        return None
+
+    init_data = request.headers.get("X-Telegram-Init-Data", "")
+    if not init_data:
+        return None
+
+    try:
+        parsed = dict(urllib.parse.parse_qsl(init_data))
+        received_hash = parsed.pop("hash", None)
+
+        if not received_hash:
+            return None
+
+        data_check_string = "\n".join(
+            f"{key}={value}" for key, value in sorted(parsed.items())
+        )
+
+        secret_key = hmac.new(
+            b"WebAppData",
+            BOT_TOKEN.encode(),
+            hashlib.sha256
+        ).digest()
+
+        calculated_hash = hmac.new(
+            secret_key,
+            data_check_string.encode(),
+            hashlib.sha256
+        ).hexdigest()
+
+        if not hmac.compare_digest(calculated_hash, received_hash):
+            return None
+
+        auth_date = int(parsed.get("auth_date", "0"))
+        if time.time() - auth_date > 86400:
+            return None
+
+        user = json.loads(parsed.get("user", "{}"))
+        return str(user.get("id", ""))
+
+    except (ValueError, TypeError, json.JSONDecodeError):
+        return None
+
+
+def authorized_user(teacher_only=False):
+    user_id = verify_telegram_user()
+
+    if not user_id:
+        return None, (jsonify({"error": "Unauthorized"}), 401)
+
+    if teacher_only and user_id not in TEACHER_IDS:
+        return None, (jsonify({"error": "Teacher access required"}), 403)
+
+    return user_id, None
 
 
 @app.route("/")
@@ -36,25 +103,42 @@ def files(filename):
     return jsonify({"error": "Not found"}), 404
 
 
+@app.route("/api/me", methods=["GET"])
+def get_me():
+    user_id, error = authorized_user()
+    if error:
+        return error
+
+    return jsonify({
+        "user_id": user_id,
+        "is_teacher": user_id in TEACHER_IDS
+    })
+
+
 @app.route("/api/data", methods=["GET"])
 def get_data():
+    user_id, error = authorized_user()
+    if error:
+        return error
+
     with sqlite3.connect(DB_PATH) as conn:
         row = conn.execute(
             "SELECT data FROM app_state WHERE id = 1"
         ).fetchone()
 
     if row:
-        return app.response_class(
-            row[0], mimetype="application/json"
-        )
+        return app.response_class(row[0], mimetype="application/json")
 
     return jsonify({"message": "no_data"})
 
 
 @app.route("/api/data", methods=["POST"])
 def save_data():
-    data = request.get_json(silent=True)
+    user_id, error = authorized_user(teacher_only=True)
+    if error:
+        return error
 
+    data = request.get_json(silent=True)
     if not isinstance(data, dict):
         return jsonify({"error": "Invalid data"}), 400
 
@@ -71,5 +155,4 @@ def save_data():
 
 
 if __name__ == "__main__":
-    print("الخادم يعمل على http://127.0.0.1:5000")
-    app.run(host="127.0.0.1", port=5000, debug=False)
+    app.run(host="0.0.0.0", port=5000, debug=False)
