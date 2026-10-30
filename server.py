@@ -12,6 +12,7 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.path.join(BASE_DIR, "attendance.db")
 
 BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
+
 TEACHER_IDS = {
     x.strip()
     for x in os.environ.get("TEACHER_IDS", "").split(",")
@@ -36,46 +37,62 @@ init_db()
 
 def verify_telegram_user():
     if not BOT_TOKEN:
+        app.logger.error("TELEGRAM_BOT_TOKEN is missing")
         return None
 
     init_data = request.headers.get("X-Telegram-Init-Data", "")
+
     if not init_data:
         return None
 
     try:
         parsed = dict(urllib.parse.parse_qsl(init_data))
+
         received_hash = parsed.pop("hash", None)
+
+        # Telegram signature must not be included in the HMAC check string.
+        parsed.pop("signature", None)
 
         if not received_hash:
             return None
 
         data_check_string = "\n".join(
-            f"{key}={value}" for key, value in sorted(parsed.items())
+            f"{key}={value}"
+            for key, value in sorted(parsed.items())
         )
 
         secret_key = hmac.new(
             b"WebAppData",
-            BOT_TOKEN.encode(),
+            BOT_TOKEN.encode("utf-8"),
             hashlib.sha256
         ).digest()
 
         calculated_hash = hmac.new(
             secret_key,
-            data_check_string.encode(),
+            data_check_string.encode("utf-8"),
             hashlib.sha256
         ).hexdigest()
 
         if not hmac.compare_digest(calculated_hash, received_hash):
+            app.logger.warning("Telegram initData hash verification failed")
             return None
 
         auth_date = int(parsed.get("auth_date", "0"))
-        if time.time() - auth_date > 86400:
+
+        if auth_date <= 0 or time.time() - auth_date > 86400:
             return None
 
         user = json.loads(parsed.get("user", "{}"))
-        return str(user.get("id", ""))
+
+        user_id = user.get("id")
+
+        if not user_id:
+            return None
+
+        return str(user_id)
 
     except (ValueError, TypeError, json.JSONDecodeError):
+        app.logger.exception("Telegram initData parsing failed")
         return None
 
 
@@ -100,12 +117,14 @@ def home():
 def files(filename):
     if filename in ("app.js", "style.css"):
         return send_from_directory(BASE_DIR, filename)
+
     return jsonify({"error": "Not found"}), 404
 
 
 @app.route("/api/me", methods=["GET"])
 def get_me():
     user_id, error = authorized_user()
+
     if error:
         return error
 
@@ -118,6 +137,7 @@ def get_me():
 @app.route("/api/data", methods=["GET"])
 def get_data():
     user_id, error = authorized_user()
+
     if error:
         return error
 
@@ -127,7 +147,10 @@ def get_data():
         ).fetchone()
 
     if row:
-        return app.response_class(row[0], mimetype="application/json")
+        return app.response_class(
+            row[0],
+            mimetype="application/json"
+        )
 
     return jsonify({"message": "no_data"})
 
@@ -135,10 +158,12 @@ def get_data():
 @app.route("/api/data", methods=["POST"])
 def save_data():
     user_id, error = authorized_user(teacher_only=True)
+
     if error:
         return error
 
     data = request.get_json(silent=True)
+
     if not isinstance(data, dict):
         return jsonify({"error": "Invalid data"}), 400
 
@@ -155,4 +180,8 @@ def save_data():
 
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000, debug=False)
+    app.run(
+        host="0.0.0.0",
+        port=5000,
+        debug=False
+    )
