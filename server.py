@@ -2,6 +2,7 @@
 from flask import Flask, request, jsonify, send_from_directory
 import sqlite3
 import os
+import json
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.path.join(BASE_DIR, "attendance.db")
@@ -17,6 +18,10 @@ def init_db():
                 data TEXT NOT NULL
             )
         """)
+
+
+# تجهيز قاعدة البيانات عند تشغيل الخادم
+init_db()
 
 
 @app.route("/")
@@ -53,7 +58,6 @@ def save_data():
     if not isinstance(data, dict):
         return jsonify({"error": "Invalid data"}), 400
 
-    import json
     encoded = json.dumps(data, ensure_ascii=False)
 
     with sqlite3.connect(DB_PATH) as conn:
@@ -67,6 +71,5 @@ def save_data():
 
 
 if __name__ == "__main__":
-    init_db()
     print("الخادم يعمل على http://127.0.0.1:5000")
     app.run(host="127.0.0.1", port=5000, debug=False)
