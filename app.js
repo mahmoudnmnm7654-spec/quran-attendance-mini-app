@@ -7,16 +7,14 @@ const telegramInitData = telegramApp?.initData || "";
 
 let isTeacher = false;
 let isAuthenticated = false;
-
-async function apiFetch(url, options = {}) {
-  return fetch(url, {
-    ...options,
-    headers: {
-      ...(options.headers || {}),
-      "X-Telegram-Init-Data": telegramInitData
-    }
-  });
-}
+let me = {};
+let data = {teacher: "المعلمة مي", groups: [], records: {}};
+let registrationGroups = [];
+let selectedGroupId = null;
+let currentScreen = "homeScreen";
+let pickedStudentStatus = "";
+let spinning = false;
+let rotation = 0;
 
 const statuses = {
   "حاضرة": "status-present",
@@ -24,24 +22,6 @@ const statuses = {
   "مستمعة": "status-listener",
   "معتذرة": "status-excused"
 };
-
-const defaultData = {
-  teacher: "المعلمة مي",
-  groups: [
-    {id: 1, name: "مجموعة الفجر", students: ["فاطمة أحمد","مريم علي","سارة خالد","نورهان مصطفى","آية محمد","رغد حسن","ليا إبراهيم","جود سامي"]},
-    {id: 2, name: "مجموعة النور", students: ["آية محمود","سلمى أحمد","رؤى خالد","جنى محمد"]},
-    {id: 3, name: "مجموعة الإتقان", students: ["مريم حسن","نور علي","سارة محمود"]},
-    {id: 4, name: "مجموعة الخاتمات", students: ["فاطمة علي","رنا أحمد","هبة محمد","شهد خالد"]}
-  ],
-  records: {}
-};
-
-let data = structuredClone(defaultData);
-let selectedGroupId = 1;
-let currentScreen = "homeScreen";
-let pickedStudentStatus = "";
-let spinning = false;
-let rotation = 0;
 
 const today = () => {
   const d = new Date();
@@ -53,23 +33,62 @@ function showMessage(message) {
   alert(message);
 }
 
-function applyPermissions() {
-  const teacherButton = $("#teacherMode");
-  const studentButton = $("#studentMode");
-  const settingsButton = $("#settingsQuick");
+function escapeHtml(v) {
+  return String(v ?? "").replace(/[&<>"']/g, c => ({
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    '"': "&quot;",
+    "'": "&#39;"
+  }[c]));
+}
 
-  if (teacherButton) teacherButton.classList.toggle("hidden", !isTeacher);
-  if (settingsButton) settingsButton.classList.toggle("hidden", !isTeacher);
+function escapeAttr(v) {
+  return escapeHtml(v);
+}
 
-  if (!isTeacher) {
-    if (studentButton) studentButton.classList.add("active");
-    teacherButton?.classList.remove("active");
-    showScreen("studentScreen");
-  } else {
-    if (teacherButton) teacherButton.classList.add("active");
-    studentButton?.classList.remove("active");
-    showScreen("homeScreen");
+async function apiFetch(url, options = {}) {
+  return fetch(url, {
+    ...options,
+    headers: {
+      ...(options.headers || {}),
+      "X-Telegram-Init-Data": telegramInitData
+    }
+  });
+}
+
+async function readJson(response) {
+  const result = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(result.error || result.message || "حدث خطأ في الاتصال بالخادم.");
   }
+  return result;
+}
+
+async function refreshMe() {
+  const response = await apiFetch("/api/me");
+  me = await readJson(response);
+  isTeacher = me.is_teacher === true || me.role === "teacher";
+  return me;
+}
+
+async function loadTeacherData() {
+  const response = await apiFetch("/api/data");
+  const serverData = await readJson(response);
+
+  if (!serverData || !Array.isArray(serverData.groups)) {
+    throw new Error("بيانات المجموعات غير صحيحة.");
+  }
+
+  data = serverData;
+  if (!data.records) data.records = {};
+  selectedGroupId = data.groups[0]?.id ?? null;
+}
+
+async function loadRegistrationGroups() {
+  const response = await apiFetch("/api/groups-for-registration");
+  const result = await readJson(response);
+  registrationGroups = result.groups || [];
 }
 
 async function initializeApp() {
@@ -83,54 +102,25 @@ async function initializeApp() {
   }
 
   try {
-    const meResponse = await apiFetch("/api/me");
-
-    if (!meResponse.ok) {
-      throw new Error("تعذر التحقق من حساب Telegram.");
-    }
-
-    const me = await meResponse.json();
+    await refreshMe();
     isAuthenticated = true;
-    isTeacher = me.is_teacher === true;
 
-    const dataResponse = await apiFetch("/api/data");
+    if (isTeacher) {
+      await loadTeacherData();
 
-    if (!dataResponse.ok) {
-      throw new Error("تعذر تحميل بيانات المجموعات.");
-    }
+      if ($("#attendanceDate")) $("#attendanceDate").value = today();
 
-    const serverData = await dataResponse.json();
-
-    if (serverData && Array.isArray(serverData.groups)) {
-      data = serverData;
+      renderHome();
+      renderGroups();
+      renderSelectedGroup();
+      fillStudentGroups();
+      applyPermissions();
+      loadTeacherRequestsButton();
     } else {
-      const saved = localStorage.getItem("quranAttendanceData");
-      if (saved) {
-        try {
-          const localData = JSON.parse(saved);
-          if (isTeacher && localData && Array.isArray(localData.groups)) {
-            data = localData;
-          }
-        } catch {
-          data = structuredClone(defaultData);
-        }
-      }
+      await loadRegistrationGroups();
+      applyPermissions();
+      renderStudentScreen();
     }
-
-    if (!Array.isArray(data.groups) || data.groups.length === 0) {
-      data = structuredClone(defaultData);
-    }
-
-    selectedGroupId = data.groups[0]?.id || 1;
-
-    $("#attendanceDate").value = today();
-
-    renderHome();
-    renderGroups();
-    renderSelectedGroup();
-    fillStudentGroups();
-
-    applyPermissions();
 
     telegramApp?.ready();
     telegramApp?.expand();
@@ -146,12 +136,29 @@ async function initializeApp() {
   }
 }
 
-async function persist() {
-  localStorage.setItem("quranAttendanceData", JSON.stringify(data));
+function applyPermissions() {
+  const teacherButton = $("#teacherMode");
+  const studentButton = $("#studentMode");
+  const settingsButton = $("#settingsQuick");
 
-  if (!isAuthenticated || !isTeacher) {
-    return false;
+  if (teacherButton) teacherButton.classList.toggle("hidden", !isTeacher);
+  if (settingsButton) settingsButton.classList.toggle("hidden", !isTeacher);
+
+  if (!isTeacher) {
+    teacherButton?.classList.remove("active");
+    studentButton?.classList.add("active");
+    $$(".bottom-nav").forEach(n => n.classList.add("hidden"));
+    showScreen("studentScreen");
+  } else {
+    teacherButton?.classList.add("active");
+    studentButton?.classList.remove("active");
+    $$(".bottom-nav").forEach(n => n.classList.remove("hidden"));
+    showScreen("homeScreen");
   }
+}
+
+async function persist() {
+  if (!isAuthenticated || !isTeacher) return false;
 
   try {
     const response = await apiFetch("/api/data", {
@@ -160,24 +167,21 @@ async function persist() {
       body: JSON.stringify(data)
     });
 
-    if (!response.ok) {
-      throw new Error("رفض الخادم حفظ البيانات.");
-    }
-
+    await readJson(response);
     return true;
   } catch (error) {
-    console.error("تعذر حفظ البيانات:", error);
-    showMessage("تعذر حفظ البيانات على الخادم. تحققي من الاتصال.");
+    console.error(error);
+    showMessage(error.message || "تعذر حفظ البيانات.");
     return false;
   }
 }
 
 function group() {
-  return data.groups.find(g => g.id === selectedGroupId) || data.groups[0];
+  return data.groups.find(g => String(g.id) === String(selectedGroupId)) || data.groups[0];
 }
 
 function recordKey() {
-  return `${selectedGroupId}_${$("#attendanceDate").value || today()}`;
+  return `${selectedGroupId}_${$("#attendanceDate")?.value || today()}`;
 }
 
 function getRecord() {
@@ -194,18 +198,12 @@ function showScreen(id) {
   if (!$("#" + id)) return;
 
   const teacherScreens = [
-    "homeScreen",
-    "groupsScreen",
-    "groupScreen",
-    "attendanceScreen",
-    "statsScreen",
-    "settingsScreen",
+    "homeScreen", "groupsScreen", "groupScreen",
+    "attendanceScreen", "statsScreen", "settingsScreen",
     "manageStudentsScreen"
   ];
 
-  if (!isTeacher && teacherScreens.includes(id)) {
-    return;
-  }
+  if (!isTeacher && teacherScreens.includes(id)) return;
 
   $$(".screen").forEach(s => s.classList.toggle("active", s.id === id));
   $$(".nav-item").forEach(b => b.classList.toggle("active", b.dataset.screen === id));
@@ -224,10 +222,10 @@ function showScreen(id) {
 }
 
 document.addEventListener("click", e => {
-  const b = e.target.closest("[data-screen]");
-  if (b) {
+  const button = e.target.closest("[data-screen]");
+  if (button) {
     e.preventDefault();
-    showScreen(b.dataset.screen);
+    showScreen(button.dataset.screen);
   }
 });
 
@@ -236,23 +234,29 @@ $("#settingsQuick")?.addEventListener("click", () => {
 });
 
 function renderHome() {
-  $("#homeGroupName").textContent = group()?.name || "أضيفي مجموعة";
-  $("#homeTeacher").textContent = data.teacher || "معلمة المجموعة";
+  if (!isTeacher) return;
 
-  $("#homeGroups").innerHTML = data.groups.slice(0, 3).map(g => `
-    <button class="group-card" data-group="${g.id}">
-      <span class="chev">‹</span>
-      <span class="group-emblem">۞</span>
-      <span class="group-info">
-        <strong>${escapeHtml(g.name)}</strong>
-        <small>${g.students.length} طالبة · سجل مستقل</small>
-      </span>
-    </button>`).join("");
+  if ($("#homeGroupName")) $("#homeGroupName").textContent = group()?.name || "أضيفي مجموعة";
+  if ($("#homeTeacher")) $("#homeTeacher").textContent = data.teacher || "معلمة المجموعة";
+
+  if ($("#homeGroups")) {
+    $("#homeGroups").innerHTML = data.groups.slice(0, 3).map(g => `
+      <button class="group-card" data-group="${escapeAttr(g.id)}">
+        <span class="chev">‹</span>
+        <span class="group-emblem">۞</span>
+        <span class="group-info">
+          <strong>${escapeHtml(g.name)}</strong>
+          <small>${g.students.length} طالبة · سجل مستقل</small>
+        </span>
+      </button>`).join("");
+  }
 }
 
 function renderGroups() {
+  if (!isTeacher || !$("#groupsList")) return;
+
   $("#groupsList").innerHTML = data.groups.map(g => `
-    <button class="group-card" data-group="${g.id}">
+    <button class="group-card" data-group="${escapeAttr(g.id)}">
       <span class="chev">‹</span>
       <span class="group-emblem">۞</span>
       <span class="group-info">
@@ -263,19 +267,20 @@ function renderGroups() {
 }
 
 function renderSelectedGroup() {
+  if (!isTeacher) return;
   const g = group();
   if (!g) return;
 
-  $("#selectedGroupTitle").textContent = g.name;
-  $("#selectedGroupName").textContent = g.name;
-  $("#selectedGroupCount").textContent = `${g.students.length} طالبة`;
+  if ($("#selectedGroupTitle")) $("#selectedGroupTitle").textContent = g.name;
+  if ($("#selectedGroupName")) $("#selectedGroupName").textContent = g.name;
+  if ($("#selectedGroupCount")) $("#selectedGroupCount").textContent = `${g.students.length} طالبة`;
 }
 
 document.addEventListener("click", e => {
-  const b = e.target.closest("[data-group]");
-  if (!b || !isTeacher) return;
+  const button = e.target.closest("[data-group]");
+  if (!button || !isTeacher) return;
 
-  selectedGroupId = Number(b.dataset.group);
+  selectedGroupId = Number(button.dataset.group);
   renderHome();
   showScreen("groupScreen");
 });
@@ -287,7 +292,9 @@ function renderStudents() {
   if (!g) return;
 
   const rec = getRecord();
-  const q = ($("#studentSearch").value || "").trim();
+  const q = ($("#studentSearch")?.value || "").trim();
+
+  if (!$("#studentsList")) return;
 
   $("#studentsList").innerHTML = g.students
     .filter(n => n.includes(q))
@@ -301,10 +308,10 @@ function renderStudents() {
         </select>
       </div>`).join("") || '<p class="hint">لا توجد أسماء مطابقة.</p>';
 
-  $$(".status-select").forEach(s => {
-    s.onchange = async () => {
-      rec[s.dataset.student] = s.value;
-      s.className = `status-select ${statuses[s.value]}`;
+  $$(".status-select").forEach(select => {
+    select.onchange = async () => {
+      rec[select.dataset.student] = select.value;
+      select.className = `status-select ${statuses[select.value]}`;
       updateStatsCounts(rec);
       await persist();
     };
@@ -314,19 +321,19 @@ function renderStudents() {
 }
 
 function updateStatsCounts(rec) {
+  if (!rec) return;
   const values = Object.values(rec);
   const count = s => values.filter(v => v === s).length;
 
-  $("#presentCount").textContent = count("حاضرة");
-  $("#absentCount").textContent = count("غائبة");
-  $("#listenerCount").textContent = count("مستمعة");
-  $("#excusedCount").textContent = count("معتذرة");
-  $("#totalStudents").textContent = group()?.students.length || 0;
+  if ($("#presentCount")) $("#presentCount").textContent = count("حاضرة");
+  if ($("#absentCount")) $("#absentCount").textContent = count("غائبة");
+  if ($("#listenerCount")) $("#listenerCount").textContent = count("مستمعة");
+  if ($("#excusedCount")) $("#excusedCount").textContent = count("معتذرة");
+  if ($("#totalStudents")) $("#totalStudents").textContent = group()?.students.length || 0;
 }
 
 function renderStats() {
-  if (!isTeacher) return;
-  updateStatsCounts(getRecord());
+  if (isTeacher) updateStatsCounts(getRecord());
 }
 
 $("#studentSearch")?.addEventListener("input", renderStudents);
@@ -335,54 +342,37 @@ $("#attendanceDate")?.addEventListener("change", renderStudents);
 $("#saveAttendance")?.addEventListener("click", async () => {
   if (!isTeacher) return;
 
-  const saved = await persist();
-  if (saved) {
-    $("#saveNotice").classList.remove("hidden");
-    setTimeout(() => $("#saveNotice").classList.add("hidden"), 2400);
+  if (await persist()) {
+    $("#saveNotice")?.classList.remove("hidden");
+    setTimeout(() => $("#saveNotice")?.classList.add("hidden"), 2400);
   }
 });
 
 function renderManageStudents() {
   if (!isTeacher) return;
 
-  const sel = $("#manageGroupSelect");
-  if (!sel) return;
+  const select = $("#manageGroupSelect");
+  if (!select) return;
 
-  sel.innerHTML = data.groups.map(g => `
-    <option value="${g.id}" ${g.id === selectedGroupId ? "selected" : ""}>
+  select.innerHTML = data.groups.map(g => `
+    <option value="${escapeAttr(g.id)}" ${String(g.id) === String(selectedGroupId) ? "selected" : ""}>
       ${escapeHtml(g.name)}
     </option>`).join("");
 
-  const g = data.groups.find(x => x.id === Number(sel.value)) || group();
+  const g = data.groups.find(x => String(x.id) === String(select.value)) || group();
 
-  $("#manageStudentsList").innerHTML = g.students.map((n, i) => `
-    <div class="manage-row">
-      <input data-student-edit="${i}" value="${escapeAttr(n)}">
-      <button data-delete-student="${i}">حذف</button>
-    </div>`).join("");
+  if ($("#manageStudentsList")) {
+    $("#manageStudentsList").innerHTML = g.students.map((n, i) => `
+      <div class="manage-row">
+        <input data-student-edit="${i}" value="${escapeAttr(n)}">
+        <button data-delete-student="${i}">حذف</button>
+      </div>`).join("");
+  }
 }
 
 function fillStudentGroups() {
-  const a = $("#studentGroupSelect");
-  const b = $("#manageGroupSelect");
-
-  if (a) {
-    a.innerHTML = data.groups.map(g => `
-      <option value="${g.id}">${escapeHtml(g.name)}</option>`).join("");
-  }
-
-  if (a) fillStudentNames();
-  if (b && isTeacher) renderManageStudents();
-}
-
-function fillStudentNames() {
-  const sel = $("#studentNameSelect");
-  if (!sel) return;
-
-  const g = data.groups.find(x => x.id === Number($("#studentGroupSelect").value)) || data.groups[0];
-
-  sel.innerHTML = (g?.students || []).map(n => `
-    <option>${escapeHtml(n)}</option>`).join("");
+  const select = $("#manageGroupSelect");
+  if (select && isTeacher) renderManageStudents();
 }
 
 $("#manageGroupSelect")?.addEventListener("change", () => {
@@ -391,141 +381,383 @@ $("#manageGroupSelect")?.addEventListener("change", () => {
   renderManageStudents();
 });
 
-$("#studentGroupSelect")?.addEventListener("change", fillStudentNames);
-
 $("#addStudent")?.addEventListener("click", async () => {
   if (!isTeacher) return;
 
-  const n = $("#newStudentName").value.trim();
-  const g = data.groups.find(x => x.id === Number($("#manageGroupSelect").value)) || group();
+  const name = $("#newStudentName")?.value.trim();
+  const g = data.groups.find(x => String(x.id) === String($("#manageGroupSelect")?.value)) || group();
 
-  if (!n) return showMessage("اكتبي اسم الطالبة أولًا.");
-  if (g.students.includes(n)) return showMessage("هذا الاسم موجود بالفعل.");
+  if (!name) return showMessage("اكتبي اسم الطالبة أولًا.");
+  if (g.students.includes(name)) return showMessage("هذا الاسم موجود بالفعل.");
 
-  g.students.push(n);
+  g.students.push(name);
   selectedGroupId = g.id;
 
   if (await persist()) {
     $("#newStudentName").value = "";
     renderManageStudents();
     renderHome();
-    fillStudentGroups();
+  } else {
+    g.students.pop();
   }
 });
 
 document.addEventListener("change", async e => {
-  const inp = e.target.closest("[data-student-edit]");
-  if (!inp || !isTeacher) return;
+  const input = e.target.closest("[data-student-edit]");
+  if (!input || !isTeacher) return;
 
-  const g = data.groups.find(x => x.id === Number($("#manageGroupSelect").value)) || group();
-  const i = Number(inp.dataset.studentEdit);
+  const g = data.groups.find(x => String(x.id) === String($("#manageGroupSelect")?.value)) || group();
+  const index = Number(input.dataset.studentEdit);
+  const newName = input.value.trim();
 
-  if (inp.value.trim()) {
-    const oldName = g.students[i];
-    g.students[i] = inp.value.trim();
-
-    if (!await persist()) {
-      g.students[i] = oldName;
-      return;
-    }
-
+  if (!newName) {
+    showMessage("لا يمكن ترك اسم الطالبة فارغًا.");
     renderManageStudents();
-    renderHome();
-    fillStudentGroups();
+    return;
   }
-});
 
-document.addEventListener("click", async e => {
-  const b = e.target.closest("[data-delete-student]");
-  if (!b || !isTeacher) return;
-
-  const g = data.groups.find(x => x.id === Number($("#manageGroupSelect").value)) || group();
-  const i = Number(b.dataset.deleteStudent);
-  const removed = g.students.splice(i, 1);
+  const oldName = g.students[index];
+  g.students[index] = newName;
 
   if (!await persist()) {
-    g.students.splice(i, 0, ...removed);
+    g.students[index] = oldName;
     return;
   }
 
   renderManageStudents();
   renderHome();
-  fillStudentGroups();
+});
+
+document.addEventListener("click", async e => {
+  const button = e.target.closest("[data-delete-student]");
+  if (!button || !isTeacher) return;
+
+  const g = data.groups.find(x => String(x.id) === String($("#manageGroupSelect")?.value)) || group();
+  const index = Number(button.dataset.deleteStudent);
+  const removed = g.students.splice(index, 1);
+
+  if (!await persist()) {
+    g.students.splice(index, 0, ...removed);
+    return;
+  }
+
+  renderManageStudents();
+  renderHome();
 });
 
 $("#teacherMode")?.addEventListener("click", () => {
-  if (!isTeacher) return;
-
-  $("#teacherMode").classList.add("active");
-  $("#studentMode").classList.remove("active");
-  showScreen("homeScreen");
+  if (isTeacher) showScreen("homeScreen");
 });
 
 $("#studentMode")?.addEventListener("click", () => {
-  $("#studentMode").classList.add("active");
-  $("#teacherMode")?.classList.remove("active");
-  fillStudentGroups();
-  showScreen("studentScreen");
+  if (!isTeacher) showScreen("studentScreen");
 });
 
-$$(".status-choice").forEach(b => {
-  b.addEventListener("click", () => {
-    pickedStudentStatus = b.dataset.status;
-    $$(".status-choice").forEach(x => x.classList.toggle("selected", x === b));
+/* واجهة الطالبة وطلب ربط الحساب */
+
+function studentPanel() {
+  return $("#studentScreen")?.querySelector(".student-panel");
+}
+
+function renderStudentScreen() {
+  if (isTeacher) return;
+
+  if (me.is_student_linked || me.student_linked || me.student) {
+    renderLinkedStudent();
+  } else if (me.has_pending_request || me.pending_request) {
+    renderPendingStudent();
+  } else {
+    renderStudentRegistration();
+  }
+}
+
+function renderStudentRegistration() {
+  const panel = studentPanel();
+  if (!panel) return;
+
+  panel.innerHTML = `
+    <h3>ربط حسابكِ بالحضور القرآني 🌷</h3>
+    <p class="hint">اختاري مجموعتكِ واكتبي اسمكِ كما سجلته المعلمة. سيصل طلبكِ للمعلمة للموافقة.</p>
+
+    <label for="studentGroupSelect">المجموعة القرآنية</label>
+    <select id="studentGroupSelect">
+      <option value="">اختاري المجموعة</option>
+      ${registrationGroups.map(g => `
+        <option value="${escapeAttr(g.id)}">${escapeHtml(g.name)}</option>
+      `).join("")}
+    </select>
+
+    <label for="studentNameSelect">اسمكِ الكامل</label>
+    <input id="studentNameSelect" type="text" placeholder="اكتبي اسمكِ كما هو مسجل">
+
+    <button class="primary-btn" id="requestStudentLink">إرسال طلب الربط</button>
+    <p class="hint">لن تتمكني من تسجيل الحضور قبل موافقة المعلمة.</p>
+  `;
+
+  $("#requestStudentLink")?.addEventListener("click", sendStudentRequest);
+}
+
+async function sendStudentRequest() {
+  const groupId = $("#studentGroupSelect")?.value;
+  const studentName = $("#studentNameSelect")?.value.trim();
+  const button = $("#requestStudentLink");
+
+  if (!groupId) return showMessage("اختاري المجموعة أولًا.");
+  if (!studentName) return showMessage("اكتبي اسمكِ كما سجلته المعلمة.");
+
+  button.disabled = true;
+  button.textContent = "جارٍ إرسال الطلب...";
+
+  try {
+    const response = await apiFetch("/api/student/request", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({
+        group_id: groupId,
+        student_name: studentName
+      })
+    });
+
+    await readJson(response);
+    await refreshMe();
+    renderStudentScreen();
+  } catch (error) {
+    showMessage(error.message);
+    button.disabled = false;
+    button.textContent = "إرسال طلب الربط";
+  }
+}
+
+function renderPendingStudent() {
+  const panel = studentPanel();
+  if (!panel) return;
+
+  const name = me.pending_request?.student_name || me.student_name || "";
+
+  panel.innerHTML = `
+    <div style="text-align:center;padding:20px 8px">
+      <div style="font-size:42px">⏳</div>
+      <h3>طلبكِ قيد المراجعة</h3>
+      <p> ${name ? `الاسم: ${escapeHtml(name)}` : "وصل طلب ربط حسابكِ للمعلمة."}</p>
+      <p class="hint">انتظري موافقة المعلمة، ثم اضغطي على تحديث الحالة.</p>
+      <button class="primary-btn" id="refreshStudentLink">تحديث الحالة</button>
+    </div>
+  `;
+
+  $("#refreshStudentLink")?.addEventListener("click", async () => {
+    try {
+      await refreshMe();
+      renderStudentScreen();
+    } catch (error) {
+      showMessage(error.message);
+    }
   });
+}
+
+function renderLinkedStudent() {
+  const panel = studentPanel();
+  if (!panel) return;
+
+  const student = me.student || {};
+  const name = student.name || me.student_name || "الطالبة";
+  const groupName = student.group_name || me.group_name || "";
+
+  panel.innerHTML = `
+    <div style="text-align:center;padding:12px 8px">
+      <div style="font-size:38px">🌷</div>
+      <h3>أهلًا بكِ ${escapeHtml(name)}</h3>
+      <p class="hint">${escapeHtml(groupName)}</p>
+      <p>اختاري حالتكِ لهذا اليوم:</p>
+
+      <div class="student-status-choices">
+        ${Object.entries(statuses).map(([status, cls]) => `
+          <button type="button" class="status-choice ${cls}" data-status="${status}">
+            ${status}
+          </button>
+        `).join("")}
+      </div>
+
+      <button class="primary-btn" id="submitStudentStatus">تأكيد الحالة</button>
+    </div>
+  `;
+
+  $$(".status-choice", panel).forEach(button => {
+    button.addEventListener("click", () => {
+      pickedStudentStatus = button.dataset.status;
+      $$(".status-choice", panel).forEach(b => {
+        b.classList.toggle("selected", b === button);
+      });
+    });
+  });
+
+  $("#submitStudentStatus")?.addEventListener("click", submitStudentStatus);
+}
+
+async function submitStudentStatus() {
+  if (!pickedStudentStatus) {
+    return showMessage("اختاري حالتكِ أولًا.");
+  }
+
+  const button = $("#submitStudentStatus");
+  button.disabled = true;
+
+  try {
+    const response = await apiFetch("/api/student/status", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({status: pickedStudentStatus})
+    });
+
+    await readJson(response);
+    showMessage("تم تسجيل حالتكِ بنجاح 🌷");
+    pickedStudentStatus = "";
+    button.disabled = false;
+  } catch (error) {
+    showMessage(error.message);
+    button.disabled = false;
+  }
+}
+
+/* طلبات ربط الطالبات لدى المعلمة */
+
+function loadTeacherRequestsButton() {
+  if (!isTeacher || !$("#homeScreen")) return;
+
+  let button = $("#openLinkRequests");
+  if (!button) {
+    button = document.createElement("button");
+    button.id = "openLinkRequests";
+    button.className = "primary-btn";
+    button.textContent = "طلبات ربط الطالبات";
+    button.style.margin = "12px 0";
+    $("#homeScreen").prepend(button);
+  }
+
+  button.onclick = showTeacherRequests;
+}
+
+async function showTeacherRequests() {
+  if (!isTeacher) return;
+
+  try {
+    const response = await apiFetch("/api/teacher/requests");
+    const result = await readJson(response);
+    const requests = result.requests || [];
+
+    let panel = $("#teacherRequestsPanel");
+    if (!panel) {
+      panel = document.createElement("section");
+      panel.id = "teacherRequestsPanel";
+      panel.className = "panel";
+      $("#homeScreen").appendChild(panel);
+    }
+
+    panel.innerHTML = `
+      <h3>طلبات ربط الطالبات</h3>
+      ${requests.length ? requests.map(r => `
+        <div class="student-row" style="display:block;margin:12px 0;padding:12px">
+          <strong>${escapeHtml(r.student_name)}</strong>
+          <p>${escapeHtml(r.group_name || r.group_id || "")}</p>
+          <p class="hint">حساب Telegram: ${escapeHtml(r.telegram_user_id || "")}</p>
+          <button class="primary-btn" data-approve-request="${escapeAttr(r.id)}">موافقة</button>
+          <button class="secondary-btn" data-reject-request="${escapeAttr(r.id)}">رفض</button>
+        </div>
+      `).join("") : '<p class="hint">لا توجد طلبات ربط جديدة.</p>'}
+      <button class="secondary-btn" id="refreshTeacherRequests">تحديث الطلبات</button>
+    `;
+
+    $("#refreshTeacherRequests")?.addEventListener("click", showTeacherRequests);
+  } catch (error) {
+    showMessage(error.message);
+  }
+}
+
+document.addEventListener("click", async e => {
+  const approve = e.target.closest("[data-approve-request]");
+  const reject = e.target.closest("[data-reject-request]");
+
+  if (!isTeacher) return;
+
+  if (approve) {
+    approve.disabled = true;
+    try {
+      const id = approve.dataset.approveRequest;
+      const response = await apiFetch(`/api/teacher/requests/${encodeURIComponent(id)}/approve`, {
+        method: "POST"
+      });
+      await readJson(response);
+      showMessage("تمت الموافقة وربط حساب الطالبة.");
+      await showTeacherRequests();
+    } catch (error) {
+      showMessage(error.message);
+      approve.disabled = false;
+    }
+  }
+
+  if (reject) {
+    if (!confirm("هل تريدين رفض طلب الربط؟")) return;
+
+    reject.disabled = true;
+    try {
+      const id = reject.dataset.rejectRequest;
+      const response = await apiFetch(`/api/teacher/requests/${encodeURIComponent(id)}/reject`, {
+        method: "POST"
+      });
+      await readJson(response);
+      showMessage("تم رفض الطلب.");
+      await showTeacherRequests();
+    } catch (error) {
+      showMessage(error.message);
+      reject.disabled = false;
+    }
+  }
 });
 
-$("#submitStudentStatus")?.addEventListener("click", () => {
-  showMessage("تسجيل حضور الطالبات سيُفعّل بعد ربط حساب Telegram بكل طالبة والتحقق من هويتها. لم نسجل اسمًا بالنيابة عن طالبة أخرى.");
-});
+/* الإعدادات وإدارة المجموعات */
 
 function renderSettings() {
   if (!isTeacher) return;
 
-  $("#teacherName").value = data.teacher || "";
+  if ($("#teacherName")) $("#teacherName").value = data.teacher || "";
 
-  $("#groupEditors").innerHTML = data.groups.map(g => `
-    <div class="editor-row">
-      <input data-edit-group="${g.id}" value="${escapeAttr(g.name)}" aria-label="اسم المجموعة">
-      <button data-delete-group="${g.id}" title="حذف المجموعة">حذف</button>
-    </div>`).join("");
+  if ($("#groupEditors")) {
+    $("#groupEditors").innerHTML = data.groups.map(g => `
+      <div class="editor-row">
+        <input data-edit-group="${escapeAttr(g.id)}" value="${escapeAttr(g.name)}" aria-label="اسم المجموعة">
+        <button data-delete-group="${escapeAttr(g.id)}" title="حذف المجموعة">حذف</button>
+      </div>`).join("");
+  }
 }
 
-$("#addGroupSetting")?.addEventListener("click", () => {
+$("#addGroupSetting")?.addEventListener("click", async () => {
   if (!isTeacher) return;
 
-  const name = $("#newGroupName").value.trim();
-  if (!name) {
-    $("#newGroupName").focus();
-    return;
-  }
-
-  addGroup(name);
-  $("#newGroupName").value = "";
-  renderSettings();
-});
-
-$("#addGroup")?.addEventListener("click", () => {
-  if (!isTeacher) return;
-  showScreen("settingsScreen");
-  $("#newGroupName").focus();
-});
-
-async function addGroup(name) {
-  if (!isTeacher) return;
+  const name = $("#newGroupName")?.value.trim();
+  if (!name) return $("#newGroupName")?.focus();
 
   const id = Date.now();
   data.groups.push({id, name, students: []});
   selectedGroupId = id;
 
-  if (await persist()) renderHome();
-}
+  if (await persist()) {
+    $("#newGroupName").value = "";
+    renderSettings();
+    renderHome();
+    renderGroups();
+  } else {
+    data.groups = data.groups.filter(g => g.id !== id);
+  }
+});
+
+$("#addGroup")?.addEventListener("click", () => {
+  if (!isTeacher) return;
+  showScreen("settingsScreen");
+  $("#newGroupName")?.focus();
+});
 
 document.addEventListener("click", async e => {
-  const del = e.target.closest("[data-delete-group]");
-  if (!del || !isTeacher) return;
-
-  const id = Number(del.dataset.deleteGroup);
+  const button = e.target.closest("[data-delete-group]");
+  if (!button || !isTeacher) return;
 
   if (data.groups.length === 1) {
     showMessage("يجب إبقاء مجموعة واحدة على الأقل.");
@@ -534,56 +766,61 @@ document.addEventListener("click", async e => {
 
   if (!confirm("هل تريدين حذف هذه المجموعة؟")) return;
 
+  const id = Number(button.dataset.deleteGroup);
   const oldGroups = [...data.groups];
-  data.groups = data.groups.filter(g => g.id !== id);
+  const oldSelected = selectedGroupId;
 
-  if (selectedGroupId === id) selectedGroupId = data.groups[0].id;
+  data.groups = data.groups.filter(g => Number(g.id) !== id);
+  if (Number(selectedGroupId) === id) selectedGroupId = data.groups[0].id;
 
   if (!await persist()) {
     data.groups = oldGroups;
+    selectedGroupId = oldSelected;
     return;
   }
 
   renderSettings();
   renderHome();
+  renderGroups();
+  renderSelectedGroup();
 });
 
 $("#saveSettings")?.addEventListener("click", async () => {
   if (!isTeacher) return;
 
-  data.teacher = $("#teacherName").value.trim() || "المعلمة";
+  data.teacher = $("#teacherName")?.value.trim() || "المعلمة";
 
-  $$("[data-edit-group]").forEach(i => {
-    const g = data.groups.find(x => x.id === Number(i.dataset.editGroup));
-    if (g && i.value.trim()) g.name = i.value.trim();
+  $$("[data-edit-group]").forEach(input => {
+    const g = data.groups.find(x => String(x.id) === String(input.dataset.editGroup));
+    if (g && input.value.trim()) g.name = input.value.trim();
   });
-
-  const newName = $("#newGroupName").value.trim();
-  if (newName) {
-    data.groups.push({id: Date.now(), name: newName, students: []});
-    $("#newGroupName").value = "";
-  }
 
   if (await persist()) {
     renderHome();
     renderGroups();
     renderSelectedGroup();
-    fillStudentGroups();
     showMessage("تم حفظ الإعدادات على الخادم.");
   }
 });
 
+/* الرسائل التشجيعية */
+
 $("#makeMessage")?.addEventListener("click", () => {
   if (!isTeacher) return;
 
-  const name = $("#messageStudent").value.trim() || "يا صاحبة القرآن";
-  const msg = $("#messageText").value.trim() || "واصلي طريق النور، فكل حرف تحفظينه رفعة وأجر بإذن الله.";
+  const name = $("#messageStudent")?.value.trim() || "يا صاحبة القرآن";
+  const msg = $("#messageText")?.value.trim() ||
+    "واصلي طريق النور، فكل حرف تحفظينه رفعة وأجر بإذن الله.";
 
-  const out = `إلى ${name} 🌷\n\n${msg}\n\nزادكِ الله ثباتًا وبركةً مع القرآن الكريم 💚`;
+  const output = `إلى ${name} 🌷\n\n${msg}\n\nزادكِ الله ثباتًا وبركةً مع القرآن الكريم 💚`;
 
-  $("#messagePreview").textContent = out;
-  $("#messagePreview").classList.remove("hidden");
+  if ($("#messagePreview")) {
+    $("#messagePreview").textContent = output;
+    $("#messagePreview").classList.remove("hidden");
+  }
 });
+
+/* عجلة المسابقات */
 
 const wheelTopics = [
   "كمل السورة التالية",
@@ -596,36 +833,23 @@ const wheelTopics = [
 ];
 
 $("#spinWheel")?.addEventListener("click", () => {
-  if (spinning) return;
+  if (spinning || !$("#wheel")) return;
 
   spinning = true;
-
   const idx = Math.floor(Math.random() * wheelTopics.length);
   rotation += 1440 + idx * (360 / wheelTopics.length) + Math.random() * 30;
 
   $("#wheel").style.transform = `rotate(${rotation}deg)`;
-  $("#wheelResult").textContent = "العجلة تدور...";
+  if ($("#wheelResult")) $("#wheelResult").textContent = "العجلة تدور...";
   $("#spinWheel").disabled = true;
 
   setTimeout(() => {
-    $("#wheelResult").textContent = `✨ التحدي المختار: ${wheelTopics[idx]}`;
+    if ($("#wheelResult")) {
+      $("#wheelResult").textContent = `✨ التحدي المختار: ${wheelTopics[idx]}`;
+    }
     $("#spinWheel").disabled = false;
     spinning = false;
   }, 3300);
 });
-
-function escapeHtml(v) {
-  return String(v).replace(/[&<>"']/g, c => ({
-    "&": "&amp;",
-    "<": "&lt;",
-    ">": "&gt;",
-    '"': "&quot;",
-    "'": "&#39;"
-  }[c]));
-}
-
-function escapeAttr(v) {
-  return escapeHtml(v);
-}
 
 initializeApp();
