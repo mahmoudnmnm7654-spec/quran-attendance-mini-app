@@ -48,10 +48,8 @@ def verify_telegram_user():
     try:
         parsed = dict(urllib.parse.parse_qsl(init_data))
 
+        # Remove hash only. Keep all other fields, including signature.
         received_hash = parsed.pop("hash", None)
-
-        # Telegram signature must not be included in the HMAC check string.
-        parsed.pop("signature", None)
 
         if not received_hash:
             return None
@@ -83,7 +81,6 @@ def verify_telegram_user():
             return None
 
         user = json.loads(parsed.get("user", "{}"))
-
         user_id = user.get("id")
 
         if not user_id:
@@ -103,7 +100,10 @@ def authorized_user(teacher_only=False):
         return None, (jsonify({"error": "Unauthorized"}), 401)
 
     if teacher_only and user_id not in TEACHER_IDS:
-        return None, (jsonify({"error": "Teacher access required"}), 403)
+        return None, (
+            jsonify({"error": "Teacher access required"}),
+            403
+        )
 
     return user_id, None
 
